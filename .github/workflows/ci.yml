@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 1"   # weekly (Mon): catches breakage from new Go/uv/apt releases
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck -S warning setup-dev.sh
+      - name: No Windows line endings
+        run: "! grep -l $'\\r' setup-dev.sh"
+
+  install:
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]   # x86_64 + ARM64 (Snapdragon)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run setup-dev.sh
+        env:
+          GIT_NAME: CI Bot
+          GIT_EMAIL: ci@example.com
+          SKIP_UPGRADE: "1"
+        run: ./setup-dev.sh
+
+      - name: Re-run (must be idempotent)
+        env:
+          SKIP_UPGRADE: "1"
+        run: ./setup-dev.sh
+
+      - name: Verify tools in a fresh login shell
+        shell: bash -l {0}
+        run: |
+          set -euo pipefail
+          echo "arch: $(uname -m)"
+          gcc --version | head -1 | grep -E ' 14\.'
+          clang --version | head -1
+          cmake --version | head -1
+          test "$(command -v go)" = /usr/local/go/bin/go
+          go version
+          gopls version
+          dlv version | head -2
+          uv --version
+          uv run --python 3.13 python -c 'import sys, venv, ensurepip; print(sys.version)'
+          uv run --python 3.14 python --version
+          fd --version && bat --version && rg --version | head -1
+          /usr/bin/python3 --version | grep '3.12'   # system python untouched
+          python3 -m venv /tmp/sysvenv && /tmp/sysvenv/bin/pip --version
+          printf '#include <cstdio>\nint main(){std::puts("C++ OK");}\n' > t.cpp
+          g++ -std=c++20 t.cpp -o t && ./t
+          mkdir -p /tmp/gt && cd /tmp/gt && go mod init t >/dev/null 2>&1
+          printf 'package main\nimport "fmt"\nfunc main(){fmt.Println("Go OK")}\n' > main.go
+          go run .

@@ -1,5 +1,7 @@
 # dev-setup
 
+[![CI](https://github.com/vijaiks/dev-setup/actions/workflows/ci.yml/badge.svg)](https://github.com/vijaiks/dev-setup/actions/workflows/ci.yml)
+
 One script that sets up a **C / C++ / Go / Python** development environment on **WSL Ubuntu 24.04**.
 It works on Intel/AMD (x86_64) and ARM (Snapdragon, aarch64) laptops, and it's safe to re-run.
 
@@ -24,7 +26,7 @@ Open **Ubuntu 24.04** from the Start menu and create your Linux user.
 
 ### 2. Run the script (in the Ubuntu terminal)
 ```bash
-git clone https://github.com/<your-github-username>/dev-setup.git
+git clone https://github.com/vijaiks/dev-setup.git
 cd dev-setup
 GIT_NAME="Your Name" GIT_EMAIL="you@example.com" ./setup-dev.sh
 source ~/.bashrc
@@ -35,6 +37,11 @@ source ~/.bashrc
 
 If you leave out `GIT_NAME` / `GIT_EMAIL`, the script keeps your existing git config.
 
+**One-line install** (no clone; read the script first if you don't know the author):
+```bash
+curl -fsSL https://raw.githubusercontent.com/vijaiks/dev-setup/main/setup-dev.sh | GIT_NAME="Your Name" GIT_EMAIL="you@example.com" bash
+```
+
 ### Options
 Set any of these before running:
 
@@ -44,10 +51,12 @@ Set any of these before running:
 | `PY_VERSIONS` | `3.13 3.14` | `PY_VERSIONS="3.12 3.13 3.15"` |
 | `PY_DEFAULT` | `3.13` | `PY_DEFAULT=3.14` |
 | `GO_VERSION` | latest | `GO_VERSION=1.26.5` |
+| `SKIP_UPGRADE` | `0` | `SKIP_UPGRADE=1` (skip `apt upgrade` on re-runs) |
 
 ## Verify
 ```bash
-gcc --version && go version && uv --version && python3.13 --version
+gcc --version && go version && uv --version
+uv run --python 3.13 python --version
 python3 --version   # still 3.12 = system python, leave it alone
 ```
 
@@ -81,6 +90,26 @@ Never `pip install` outside a venv. Ubuntu 24.04 blocks it (`externally-managed-
 - **Python comes from uv, not the deadsnakes PPA.** uv's Pythons work on x86_64 and ARM, include pip and venv, and don't touch system packages.
 - **Go comes from the official tarball, not apt.** apt's Go is old. The script picks amd64 or arm64 automatically.
 - **apt runs non-interactively.** That way it doesn't stop at the needrestart prompt on Ubuntu 24.04.
+
+## GitHub SSH setup (push without passwords)
+GitHub doesn't accept your account password for `git push`. Use an SSH key:
+```bash
+ssh-keygen -t ed25519 -C "you@example.com"   # press Enter at every prompt
+cat ~/.ssh/id_ed25519.pub                    # copy this line
+```
+Add it at <https://github.com/settings/ssh/new>, then:
+```bash
+ssh -T git@github.com                        # type "yes" -> "Hi <user>! ..."
+git clone git@github.com:<user>/<repo>.git   # use SSH URLs from now on
+git remote set-url origin git@github.com:<user>/<repo>.git   # convert an HTTPS clone
+```
+
+| Error | Fix |
+|---|---|
+| `Password authentication is not supported` | Switch to SSH (above), or use a Personal Access Token as the password |
+| `Permission denied (publickey)` | The key isn't added to GitHub, or it was added to a different account |
+| `Repository not found` | Create the repo on GitHub first, and check `git remote -v` for typos |
+| `port 22: Connection timed out` | Your network blocks SSH. Add `Host github.com` / `Hostname ssh.github.com` / `Port 443` to `~/.ssh/config` |
 
 ## WSL tips
 - Keep code under `~/` (Linux filesystem), not `/mnt/c/...`. It's much faster.

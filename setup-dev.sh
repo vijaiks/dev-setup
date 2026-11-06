@@ -17,6 +17,7 @@ GIT_EMAIL="${GIT_EMAIL:-}"               # empty = keep existing git config
 PY_VERSIONS="${PY_VERSIONS:-3.13 3.14}"  # uv installs these side-by-side
 PY_DEFAULT="${PY_DEFAULT:-3.13}"         # version 'python' points to (via uv)
 GO_VERSION="${GO_VERSION:-}"             # empty = latest stable from go.dev
+SKIP_UPGRADE="${SKIP_UPGRADE:-0}"        # 1 = skip "apt upgrade" (faster re-runs / CI)
 # -----------------------------------------------------
 
 # Never let apt stop and ask questions (needrestart prompt on 24.04)
@@ -36,7 +37,7 @@ step() { echo; echo "==== $* ===="; }
 # 1. Update + base tools --------------------------------------
 step "[1/7] System update + base tools ($ARCH)"
 $APT update
-$APT upgrade
+if [[ "$SKIP_UPGRADE" != "1" ]]; then $APT upgrade; fi
 $APT install build-essential curl wget git vim nano unzip zip \
   ca-certificates gnupg pkg-config jq \
   libssl-dev libffi-dev libsqlite3-dev zlib1g-dev \
@@ -68,7 +69,7 @@ else
   trap 'rm -rf "$TMP"' EXIT
   curl -fsSL -o "$TMP/$GO_TGZ" "https://go.dev/dl/$GO_TGZ"
   # Verify SHA256 against go.dev's published list
-  EXPECTED="$(curl -fsSL 'https://go.dev/dl/?mode=json' \
+  EXPECTED="$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' \
     | jq -r --arg f "$GO_TGZ" '.[].files[] | select(.filename==$f) | .sha256')" || true
   if [[ -n "${EXPECTED:-}" ]]; then
     echo "$EXPECTED  $TMP/$GO_TGZ" | sha256sum -c -
@@ -79,14 +80,24 @@ else
   sudo tar -C /usr/local -xzf "$TMP/$GO_TGZ"
 fi
 
-# PATH for Go + user-local bins (added once)
-if ! grep -q '# >>> dev-setup PATH >>>' ~/.bashrc; then
-  cat >> ~/.bashrc <<'EOF'
+# PATH for Go + user-local bins (added once).
+# Written to login files too: Ubuntu's ~/.bashrc exits early in
+# non-interactive shells (scripts, cron, editor tasks).
+RCS=(~/.bashrc ~/.profile)
+[[ -f ~/.bash_profile ]] && RCS+=(~/.bash_profile)   # bash -l reads this INSTEAD of ~/.profile
+for rc in "${RCS[@]}"; do
+  touch "$rc"
+  if ! grep -q '# >>> dev-setup PATH >>>' "$rc"; then
+    cat >> "$rc" <<'EOF'
 # >>> dev-setup PATH >>>
-export PATH="$HOME/.local/bin:/usr/local/go/bin:$HOME/go/bin:$PATH"
+case ":$PATH:" in
+  *":/usr/local/go/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:/usr/local/go/bin:$HOME/go/bin:$PATH" ;;
+esac
 # <<< dev-setup PATH <<<
 EOF
-fi
+  fi
+done
 export PATH="$HOME/.local/bin:/usr/local/go/bin:$HOME/go/bin:$PATH"
 
 # Go dev tools: language server, debugger, linter, vuln check
